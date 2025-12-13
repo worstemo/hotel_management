@@ -1,0 +1,18 @@
+{# 继承Django Admin的change_list.html基础模板 #}
+{% extends "admin/change_list.html" %}
+{# 加载Django静态文件标签库，用于引用CSS/JS资源 #}
+{% load static %}
+
+{# 重写result_list区块，在列表上方添加总收入统计 #}
+{% block result_list %}
+    {# 绿色背景的统计卡片容器 #}
+    <div style="background-color: #d4edda; border: 1px solid #c3e6cb; border-radius: 5px; padding: 15px; margin-bottom: 20px;">
+        {# 二级标题，显示总收入金额 #}
+        <h2 style="color: #155724; margin: 0; font-size: 24px;">
+            {# 钱袋图标和总收入标签 #}
+            💰 总收入: {# 使用绿色粗体显示金额，floatformat:2过滤器保留两位小数 #}<span style="color: #28a745; font-weight: bold;">￥{{ total_income|floatformat:2 }}</span>
+        </h2>
+    </div>
+    {# 调用父模板的result_list区块，显示原有的收入列表 #}
+    {{ block.super }}
+{% endblock %}

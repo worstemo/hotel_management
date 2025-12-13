@@ -1,0 +1,8 @@
+django
+pymysql
+sqlalchemy
+pandas
+numpy
+django-simpleui
+mysqlclient
+Pillow

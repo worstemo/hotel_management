@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Django
+*.log
+db.sqlite3
+db.sqlite3-journal
+/media
+/static
+/staticfiles
+
+# 迁移文件（保留初始迁移和当前应用的迁移）
+# 注意：这些迁移文件已被删除，不应该再被添加
+*/migrations/0002_add_*.py
+*/migrations/0003_*.py
+*/migrations/0004_*.py
+*/migrations/0005_*.py
+*/migrations/0006_*.py
+*/migrations/0007_*.py
+*/migrations/0008_*.py
+*/migrations/0002_room_pictures.py
+*/migrations/0002_alter_reservation_status.py
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 环境变量
+.env
