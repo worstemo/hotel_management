@@ -316,7 +316,7 @@ DROP TABLE IF EXISTS `employees_employee`;
 CREATE TABLE `employees_employee` (
     `id` bigint(20) NOT NULL AUTO_INCREMENT COMMENT '员工ID，主键自增',
     `name` varchar(100) NOT NULL COMMENT '员工姓名',
-    `position` varchar(100) NOT NULL COMMENT '职位，如：前台接待、客房清洁、酒店经理',
+    `position` varchar(100) NOT NULL COMMENT '职位，如：前台接待、客房保洁、酒店经理',
     `phone` varchar(15) NOT NULL COMMENT '联系电话，11位手机号',
     `email` varchar(254) NOT NULL COMMENT '工作邮箱',
     `address` longtext NOT NULL COMMENT '家庭住址',
@@ -330,7 +330,7 @@ CREATE TABLE `employees_employee` (
 INSERT INTO `employees_employee` VALUES 
 (1, '江业平', '前台', '13611112222', 'jiangyeping@hotel.com', '宁夏银川市金凤区', 4500.00, '2025-11-01', 'Active'),  -- 前台，负责客户接待和预订办理
 (2, '张博宸', '经理', '13722223333', 'zhangbochen@hotel.com', '宁夏银川市兴庆区', 8000.00, '2025-10-15', 'Active'),  -- 经理，负责酒店整体运营
-(3, '王五', '保洁', '13833334444', 'wangayi@hotel.com', '宁夏银川市西夏区', 3500.00, '2025-11-01', 'Active');      -- 清洁，负责客房卫生
+(3, '王五', '保洁', '13833334444', 'wangayi@hotel.com', '宁夏银川市西夏区', 3500.00, '2025-11-01', 'Active');      -- 保洁，负责客房卫生
 
 
 -- ====================================================================================
@@ -466,7 +466,7 @@ SET FOREIGN_KEY_CHECKS = 1;
 -- 
 -- 【数据说明】
 -- - 客户：3个示例客户（张亦涵、余瑞、李明）
--- - 员工：3个示例员工（江业平-前台、张博宸-经理、王五-清洁）
+-- - 员工：3个示例员工（江业平-前台、张博宸-经理、王五-保洁）
 -- - 房间：3个示例房间（201双人间、302豪华间、403单人间）
 -- - 预订/收入/支出：初始为空，通过系统操作创建
 -- ====================================================================================
