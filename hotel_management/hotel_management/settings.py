@@ -14,6 +14,8 @@
 import os
 # 导入pathlib模块，用于跨平台路径处理
 from pathlib import Path
+# 导入socket模块，用于获取主机名判断运行环境
+import socket
 
 
 # ================================
@@ -33,15 +35,27 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # 生产环境中应该使用环境变量来存储，不要硬编码
 SECRET_KEY = "django-insecure-%dhmv-tm%^_prz&mwv+3ge^v-uj4zcr5c9f86at5xkkf7i^uk9"
 
+# ================================
+# 环境判断
+# ================================
+# 通过环境变量 DJANGO_ENV 判断当前运行环境
+# 服务器上设置 DJANGO_ENV=production
+# 本地开发时不设置或设置为 development
+IS_PRODUCTION = os.environ.get('DJANGO_ENV') == 'production'
+
 # DEBUG: 调试模式开关
-# True: 显示详细错误信息（开发环境）
-# False: 隐藏详细错误信息（生产环境）
-DEBUG = True
+# 本地开发时 DEBUG=True，显示详细错误信息
+# 服务器上 DEBUG=False，隐藏详细错误信息
+DEBUG = not IS_PRODUCTION
 
 # ALLOWED_HOSTS: 允许访问的主机列表
-# 空列表在DEBUG=True时允许localhost和127.0.0.1
-# 生产环境应设置为实际域名
-ALLOWED_HOSTS = []
+# 同时包含本地和服务器地址，两边都能正常运行
+ALLOWED_HOSTS = [
+    '117.72.39.127',      # 服务器公网IP
+    'localhost',           # 本地开发
+    '127.0.0.1',          # 本地开发
+    '*',                   # 允许所有（开发方便，生产环境建议删除）
+]
 
 
 # ================================
@@ -117,12 +131,13 @@ WSGI_APPLICATION = "hotel_management.wsgi.application"
 # 数据库配置
 # ================================
 # DATABASES: 数据库连接配置字典
+# 根据运行环境自动选择不同的数据库密码
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',  # 数据库引擎：MySQL
         'NAME': 'hotel_management_db',  # 数据库名称
         'USER': 'root',  # 数据库用户名
-        'PASSWORD': 'admin',  # 数据库密码
+        'PASSWORD': 'Admin@123' if IS_PRODUCTION else 'admin',  # 服务器密码 / 本地密码
         'HOST': 'localhost',  # 数据库主机地址
         'PORT': '3306',  # 数据库端口
     }
@@ -169,6 +184,10 @@ STATIC_URL = '/static/'
 
 # STATICFILES_DIRS: 额外的静态文件目录
 STATICFILES_DIRS = [os.path.join(BASE_DIR, 'static')]
+
+# STATIC_ROOT: 静态文件收集目录（生产环境使用）
+# 执行 python manage.py collectstatic 时，静态文件会被复制到这个目录
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
 # MEDIA_URL: 媒体文件（用户上传）的URL前缀
 MEDIA_URL = '/media/'
