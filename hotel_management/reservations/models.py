@@ -9,25 +9,167 @@ from customers.models import Customer
 from rooms.models import Room
 
 
-class Reservation(models.Model):
+class Reservation(models.Model):  # 定义预订模型类，继承自Django的Model基类，用于管理酒店预订业务
     """预订模型 - 管理预订全生命周期，自动处理金额计算、房间状态同步、财务联动"""
-    STATUS = (('Booked', '已预定'), ('CheckedIn', '已入住'), ('CheckedOut', '已离店'), ('Refunded', '已退订'))
+    
+    # ================================
+    # 预订状态常量定义
+    # ================================
+    # STATUS: 定义预订状态选项的元组，每个元素为(数据库存储值, 前端显示名称)
+    # 状态流转: Booked(已预定) → CheckedIn(已入住) → CheckedOut(已离店)
+    #          Booked(已预定) → Refunded(已退订)
+    STATUS = (
+        ('Booked', '已预定'),      # 预订已创建，等待客户入住
+        ('CheckedIn', '已入住'),   # 客户已办理入住手续，正在使用房间
+        ('CheckedOut', '已离店'),  # 客户已办理退房手续，预订完成
+        ('Refunded', '已退订')     # 客户取消预订，系统已处理全额退款
+    )
 
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, verbose_name='客户')
-    room = models.ForeignKey(Room, on_delete=models.CASCADE, verbose_name='房间')
-    check_in_date = models.DateField(verbose_name='入住日期')
-    check_out_date = models.DateField(verbose_name='离店日期')
-    number_of_guests = models.PositiveIntegerField(verbose_name='入住人数', validators=[MinValueValidator(1), MaxValueValidator(100)])
-    special_requests = models.TextField(blank=True, verbose_name='特殊要求')
-    status = models.CharField(max_length=20, choices=STATUS, default='Booked', verbose_name='预订状态')
-    paid_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='已付金额',
-                                       help_text='天数×房价自动计算', validators=[MinValueValidator(Decimal('0.00'))])
-    refund_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0, verbose_name='退款金额',
-                                         validators=[MinValueValidator(Decimal('0.00'))])
-    income_recorded = models.BooleanField(default=False, verbose_name='已记录收入')
-    refund_recorded = models.BooleanField(default=False, verbose_name='已退款')
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
-    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+    # ================================
+    # 外键关联字段
+    # ================================
+    # customer: 客户外键，建立与Customer模型的多对一关系（N:1）
+    # 一个客户可以创建多个预订记录
+    # on_delete=CASCADE: 当关联的客户被删除时，该客户的所有预订也会被级联删除
+    # verbose_name: 在Django Admin后台界面中显示的字段名称
+    customer = models.ForeignKey(
+        Customer,                          # 关联的目标模型类
+        on_delete=models.CASCADE,          # 删除策略：级联删除
+        verbose_name='客户'                # Admin后台显示名称
+    )
+    
+    # room: 房间外键，建立与Room模型的多对一关系（N:1）
+    # 一个房间可以有多个预订记录（不同时间段）
+    # on_delete=CASCADE: 当关联的房间被删除时，该房间的所有预订也会被级联删除
+    room = models.ForeignKey(
+        Room,                              # 关联的目标模型类
+        on_delete=models.CASCADE,          # 删除策略：级联删除
+        verbose_name='房间'                # Admin后台显示名称
+    )
+    
+    # ================================
+    # 日期字段
+    # ================================
+    # check_in_date: 入住日期字段，使用DateField存储日期（格式：YYYY-MM-DD）
+    # 在clean()方法中会验证入住日期必须早于离店日期
+    check_in_date = models.DateField(
+        verbose_name='入住日期'            # Admin后台显示名称
+    )
+    
+    # check_out_date: 离店日期字段，使用DateField存储日期（格式：YYYY-MM-DD）
+    # 用于计算入住天数和自动计算付款金额
+    check_out_date = models.DateField(
+        verbose_name='离店日期'            # Admin后台显示名称
+    )
+    
+    # ================================
+    # 入住信息字段
+    # ================================
+    # number_of_guests: 入住人数字段，使用PositiveIntegerField存储正整数
+    # validators: 验证器列表，确保人数在合理范围内（1-100人）
+    # MinValueValidator(1): 最小值为1，至少要有1人入住
+    # MaxValueValidator(100): 最大值为100，防止异常数据
+    # 在clean()方法中还会额外验证人数不超过房间容量
+    number_of_guests = models.PositiveIntegerField(
+        verbose_name='入住人数',                      # Admin后台显示名称
+        validators=[                                  # 字段级验证器列表
+            MinValueValidator(1),                     # 最小值验证器：人数 >= 1
+            MaxValueValidator(100)                    # 最大值验证器：人数 <= 100
+        ]
+    )
+    
+    # special_requests: 特殊要求字段，使用TextField存储长文本
+    # blank=True: 表单验证时允许为空（非必填项）
+    # 用于记录客户的特殊需求，如：需要加床、无烟房间、高楼层等
+    special_requests = models.TextField(
+        blank=True,                        # 允许表单提交时为空
+        verbose_name='特殊要求'            # Admin后台显示名称
+    )
+    
+    # ================================
+    # 状态字段
+    # ================================
+    # status: 预订状态字段，使用CharField存储字符串
+    # max_length=20: 最大长度20个字符，足以存储状态值
+    # choices=STATUS: 限制可选值为预定义的STATUS元组，Admin界面显示为下拉框
+    # default='Booked': 新建预订时默认状态为"已预定"
+    status = models.CharField(
+        max_length=20,                     # 字符串最大长度
+        choices=STATUS,                    # 可选值限制为STATUS元组中的选项
+        default='Booked',                  # 默认值：已预定状态
+        verbose_name='预订状态'            # Admin后台显示名称
+    )
+    
+    # ================================
+    # 金额字段
+    # ================================
+    # paid_amount: 已付金额字段，使用DecimalField存储精确的十进制数
+    # 使用Decimal而非Float是为了避免浮点数精度问题（金融计算必须精确）
+    # max_digits=10: 总位数最多10位（含小数位），可存储最大99999999.99
+    # decimal_places=2: 小数位数为2位，精确到分
+    # default=0: 默认值为0，在clean()方法中自动计算
+    # help_text: 表单帮助提示，说明金额计算方式
+    # 金额计算公式: paid_amount = (check_out_date - check_in_date).days × room.price
+    paid_amount = models.DecimalField(
+        max_digits=10,                                    # 数字总位数（含整数和小数）
+        decimal_places=2,                                 # 小数位数
+        default=0,                                        # 默认值
+        verbose_name='已付金额',                          # Admin后台显示名称
+        help_text='天数×房价自动计算',                    # 表单字段的帮助提示文本
+        validators=[MinValueValidator(Decimal('0.00'))]   # 验证器：金额不能为负数
+    )
+    
+    # refund_amount: 退款金额字段，使用DecimalField存储
+    # 当预订状态变为"已退订"(Refunded)时，_process_refund()方法会自动设置
+    # 系统采用全额退款策略：refund_amount = paid_amount
+    refund_amount = models.DecimalField(
+        max_digits=10,                                    # 数字总位数（含整数和小数）
+        decimal_places=2,                                 # 小数位数
+        default=0,                                        # 默认值：未退款时为0
+        verbose_name='退款金额',                          # Admin后台显示名称
+        validators=[MinValueValidator(Decimal('0.00'))]   # 验证器：金额不能为负数
+    )
+    
+    # ================================
+    # 财务联动标记字段
+    # ================================
+    # income_recorded: 收入记录标志，使用BooleanField存储True/False
+    # 用于标记该预订是否已在finance_income表中创建对应的收入记录
+    # 作用：防止重复创建收入记录（幂等性保证）
+    # 在_create_income_record()方法执行后会被设置为True
+    income_recorded = models.BooleanField(
+        default=False,                     # 默认值：未记录收入
+        verbose_name='已记录收入'          # Admin后台显示名称
+    )
+    
+    # refund_recorded: 退款记录标志，使用BooleanField存储True/False
+    # 用于标记该预订是否已在finance_expense表中创建对应的退款记录
+    # 作用：防止重复创建退款记录（幂等性保证）
+    # 在_process_refund()方法执行后会被设置为True
+    refund_recorded = models.BooleanField(
+        default=False,                     # 默认值：未退款
+        verbose_name='已退款'              # Admin后台显示名称
+    )
+    
+    # ================================
+    # 时间戳字段
+    # ================================
+    # created_at: 创建时间字段，使用DateTimeField存储日期时间
+    # auto_now_add=True: 仅在对象首次创建(INSERT)时自动设置为当前时间
+    # 之后无论如何更新对象，该字段值都不会改变
+    # 用于记录预订的创建时间，便于审计和统计
+    created_at = models.DateTimeField(
+        auto_now_add=True,                 # 仅创建时自动设置当前时间
+        verbose_name='创建时间'            # Admin后台显示名称
+    )
+    
+    # updated_at: 更新时间字段，使用DateTimeField存储日期时间
+    # auto_now=True: 每次保存对象(INSERT/UPDATE)时都自动更新为当前时间
+    # 用于追踪预订的最后修改时间，便于审计
+    updated_at = models.DateTimeField(
+        auto_now=True,                     # 每次保存时自动更新为当前时间
+        verbose_name='更新时间'            # Admin后台显示名称
+    )
 
     def clean(self):  # 定义模型验证方法
         """
