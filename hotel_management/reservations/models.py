@@ -16,12 +16,12 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
     # 预订状态常量定义
     # ================================
     # STATUS: 定义预订状态选项的元组，每个元素为(数据库存储值, 前端显示名称)
-    # 状态流转: Booked(已预定) → CheckedIn(已入住) → CheckedOut(已离店)
-    #          Booked(已预定) → Refunded(已退订)
+    # 状态流转: Booked(已预订) → CheckedIn(已入住) → CheckedOut(已离店)
+    #          Booked(已预订) → Refunded(已退订)
     STATUS = (
-        ('Booked', '已预定'),      # 预订已创建，等待客户入住
+        ('Booked', '已预订'),      # 预订已创建，等待客户入住
         ('CheckedIn', '已入住'),   # 客户已办理入住手续，正在使用房间
-        ('CheckedOut', '已离店'),  # 客户已办理退房手续，预订完成
+        ('CheckedOut', '已离店'),  # 客户已办理退房手续，预订订单完成
         ('Refunded', '已退订')     # 客户取消预订，系统已处理全额退款
     )
 
@@ -91,12 +91,12 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
     # ================================
     # status: 预订状态字段，使用CharField存储字符串
     # max_length=20: 最大长度20个字符，足以存储状态值
-    # choices=STATUS: 限制可选值为预定义的STATUS元组，Admin界面显示为下拉框
-    # default='Booked': 新建预订时默认状态为"已预定"
+    # choices=STATUS: 限制可选值为预订义的STATUS元组，Admin界面显示为下拉框
+    # default='Booked': 新建预订时默认状态为"已预订"
     status = models.CharField(
         max_length=20,                     # 字符串最大长度
         choices=STATUS,                    # 可选值限制为STATUS元组中的选项
-        default='Booked',                  # 默认值：已预定状态
+        default='Booked',                  # 默认值：已预订状态
         verbose_name='预订状态'            # Admin后台显示名称
     )
     
@@ -187,6 +187,8 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
             # 验证入住日期必须早于离店日期
             if self.check_in_date >= self.check_out_date:
                 # 如果日期无效，抛出ValidationError异常
+                # 普通异常 → 程序崩溃，显示500错误页面
+                # ValidationError → 页面友好提示，用户可以修改后重新提交
                 raise ValidationError('入住日期必须早于离店日期')
             
             # 如果房间已选择，计算应付金额（使用room_id检查避免异常）
@@ -196,42 +198,83 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
                 # 计算应付金额 = 天数 × 房间价格，使用Decimal确保精确计算
                 self.paid_amount = Decimal(str(days)) * self.room.price
         
-        # 检查入住人数是否已设置
-        if self.number_of_guests:
-            # 验证人数必须在1-100之间
-            if self.number_of_guests < 1 or self.number_of_guests > 100:
-                # 如果人数无效，抛出ValidationError异常
-                raise ValidationError('入住人数必须在1-100之间')
-        
         # 检查房间和人数是否都已设置（使用room_id检查避免异常）
         if self.room_id and self.number_of_guests:
             # 验证入住人数不能超过房间容量
             if self.number_of_guests > self.room.capacity:
                 # 如果人数超过容量，抛出ValidationError异常
                 raise ValidationError(
-                    f'人数({self.number_of_guests})超过房间容量({self.room.capacity})'
+                    f'入住人数({self.number_of_guests})超过房间容量({self.room.capacity})'
                 )
         
-        # 检查房间、入住日期和离店日期是否都已设置（使用room_id检查避免异常）
+
+        # 日期冲突检测：防止同一房间在同一时间段被重复预订
+        # 检查房间、入住日期、离店日期必须都已填写
+        # 使用room_id而非room是为了避免在room未设置时访问room对象导致异常
         if self.room_id and self.check_in_date and self.check_out_date:
-            # 查询该房间在相同时段内的冲突预订
+            
+            # ----------------------------------------------------------
+            # 第一步：查询数据库，找出该房间所有"活跃"的预订
+            # ----------------------------------------------------------
+            # Reservation.objects 是Django ORM的查询管理器
+            # .filter() 相当于SQL的WHERE子句，用于筛选数据
+            # 
+            # 等价SQL: SELECT * FROM reservations_reservation 
+            #          WHERE room_id = 当前房间ID 
+            #          AND status IN ('Booked', 'CheckedIn')
+            #
             conflict = Reservation.objects.filter(
-                room=self.room,  # 筛选同一房间
-                status__in=['Booked', 'CheckedIn']  # 只考虑已预定和已入住的订单
+                # 条件1：筛选同一个房间的预订
+                room=self.room,
+                
+                # 条件2：只考虑"活跃"状态的预订（已预订 或 已入住）
+                # status__in 是Django ORM的查询语法：
+                #   - status 是字段名
+                #   - __in 是查询操作符，表示"值在列表中"
+                #   - 相当于SQL: status IN ('Booked', 'CheckedIn')
+                # 已离店(CheckedOut)和已退订(Refunded)的预订不需要考虑
+                status__in=['Booked', 'CheckedIn']
+                
+            # ----------------------------------------------------------
+            # 第二步：在上一步结果中，进一步筛选出日期有重叠的预订
+            # ----------------------------------------------------------
             ).filter(
-                # 使用Q对象构建复杂查询：检查日期是否有重叠
-                Q(check_in_date__lt=self.check_out_date) &  # 现有订单的入住日期早于当前订单的离店日期
-                Q(check_out_date__gt=self.check_in_date)  # 现有订单的离店日期晚于当前订单的入住日期
+                # Q对象用于构建复杂的查询条件，支持 &(与) 和 |(或) 操作
+                # 
+                # 日期重叠判断逻辑：
+                # 如果 已有预订的入住日期 < 新预订的离店日期
+                # 且   已有预订的离店日期 > 新预订的入住日期
+                # 则说明两个时间段有重叠
+                #
+                # __lt 表示 less than (小于)，相当于SQL的 <
+                # __gt 表示 greater than (大于)，相当于SQL的 >
+                #
+                # 等价SQL: AND check_in_date < '新预订离店日期' 
+                #          AND check_out_date > '新预订入住日期'
+                #
+                Q(check_in_date__lt=self.check_out_date) &  # 已有订单的入住日期 < 当前订单的离店日期
+                Q(check_out_date__gt=self.check_in_date)    # 已有订单的离店日期 > 当前订单的入住日期
             )
             
-            # 如果是编辑现有预订（而非新建），排除自己
-            if self.pk:
-                # 从冲突查询中排除当前预订本身
+            # ----------------------------------------------------------
+            # 第三步：如果要编辑现有预订，需要排除自己
+            # ----------------------------------------------------------
+            # 如果当前预订已存在（有主键pk），就从冲突结果中排除自己
+            # self.pk 是当前预订的主键ID
+            #   - 新建预订时 self.pk = None
+            #   - 编辑预订时 self.pk = 预订ID（如1、2、3...）
+            if self.pk:  # 如果是编辑现有预订（pk不为空）
+                # .exclude() 是filter的反向操作，表示"排除"符合条件的记录
+                # pk=self.pk 表示排除主键等于当前预订ID的记录
+                # 等价SQL: AND id != 当前预订ID
                 conflict = conflict.exclude(pk=self.pk)
             
-            # 如果存在冲突预订
-            if conflict.exists():
-                # 抛出ValidationError异常，提示该时段已被预订
+            # ----------------------------------------------------------
+            # 第四步：检查是否存在冲突，如果存在则阻止保存
+            # ----------------------------------------------------------
+            # .exists() 返回True或False，表示查询结果是否有数据
+            if conflict.exists():  # 如果存在冲突的预订记录
+                # 抛出验证错误，阻止保存，并在页面显示错误提示
                 raise ValidationError(f'房间{self.room.room_number}该时段已被预订')
 
     def save(self, *args, **kwargs):  # 重写保存方法，接收任意位置参数和关键字参数
@@ -286,18 +329,79 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
             self._process_refund()
 
     def _update_room_status(self):
-        """同步房间状态：已入住 > 已预订 > 空闲，维修中保持不变"""
-        active = Reservation.objects.filter(room=self.room, status__in=['Booked', 'CheckedIn'])
-        if active.filter(status='CheckedIn').exists():
-            new_status = 'Occupied'
-        elif active.filter(status='Booked').exists():
-            new_status = 'Booked'
-        else:
-            new_status = 'Available' if self.room.status != 'Maintenance' else 'Maintenance'
+        """
+        同步房间状态方法（私有方法，方法名以_开头表示仅供类内部调用）
         
-        if self.room.status != new_status:
-            self.room.status = new_status
-            self.room.save()
+        【功能说明】
+        根据该房间的所有预订状态，自动计算并更新房间的当前状态
+        
+        【状态优先级】（从高到低）
+        1. 已入住(Occupied) - 只要有一个"已入住"的预订，房间就是"已入住"
+        2. 已预订(Booked)   - 没有入住但有预订，房间就是"已预订"  
+        3. 空闲(Available)  - 既没入住也没预订，房间就是"空闲"
+        4. 维修中(Maintenance) - 特殊状态，系统不自动修改，需手动设置
+        
+        【调用时机】
+        - 创建预订后
+        - 修改预订状态后（入住、离店、退订）
+        - 删除预订后
+        """
+        
+        # ----------------------------------------------------------
+        # 第一步：查询该房间的所有"活跃"预订
+        # ----------------------------------------------------------
+        # 查询条件：
+        #   - room=self.room：筛选当前预订关联的房间
+        #   - status__in=['Booked', 'CheckedIn']：只看"已预订"和"已入住"状态
+        # 
+        # "已离店"和"已退订"的预订不影响房间状态，所以不查询
+        #
+        # 等价SQL: SELECT * FROM reservations_reservation 
+        #          WHERE room_id = 当前房间ID 
+        #          AND status IN ('Booked', 'CheckedIn')
+        active = Reservation.objects.filter(
+            room=self.room,                      # 筛选当前房间的预订
+            status__in=['Booked', 'CheckedIn']   # 只看活跃状态的预订
+        )
+        
+        # ----------------------------------------------------------
+        # 第二步：根据优先级判断房间应该是什么状态
+        # ----------------------------------------------------------
+        # 判断逻辑：
+        #   如果有"已入住"的预订 → 房间状态 = 已入住
+        #   否则如果有"已预订"的预订 → 房间状态 = 已预订
+        #   否则 → 房间状态 = 空闲（除非原本是维修中）
+        
+        # 情况1：检查是否有"已入住"状态的预订
+        # .filter(status='CheckedIn') 进一步筛选出已入住的预订
+        # .exists() 返回True/False，表示是否存在符合条件的记录
+        if active.filter(status='CheckedIn').exists():
+            # 有客人正在住，房间状态应该是"已入住"(Occupied)
+            new_status = 'Occupied'
+            
+        # 情况2：没有入住的，检查是否有"已预订"状态的预订
+        elif active.filter(status='Booked').exists():
+            # 有预订但还没入住，房间状态应该是"已预订"(Booked)
+            new_status = 'Booked'
+            
+        # 情况3：既没有入住也没有预订
+        else:
+            # 使用三元表达式（Python的条件表达式）：
+            # 格式：值1 if 条件 else 值2
+            # 含义：如果条件为True返回值1，否则返回值2
+            #
+            # 这里的逻辑：
+            # - 如果房间原本不是"维修中" → 设为"空闲"
+            # - 如果房间原本是"维修中" → 保持"维修中"（不自动改变维修状态）
+            new_status = 'Available' if self.room.status != 'Maintenance' else 'Maintenance'
+
+        # ----------------------------------------------------------
+        # 第三步：如果状态发生变化，则更新房间并保存到数据库
+        # ----------------------------------------------------------
+        # 只有当新状态和当前状态不同时才更新，避免不必要的数据库写操作
+        if self.room.status != new_status:        # 如果状态有变化
+            self.room.status = new_status         # 更新房间对象的status属性
+            self.room.save()                      # 将变更保存到数据库
 
     def _create_income_record(self):  # 定义私有方法，用于创建收入记录
         """
@@ -312,10 +416,10 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
         
         # 构建收入描述文本，包含预订的详细信息
         description = (
-            f'预订号:{self.id}|'  # 预订ID
-            f'客户:{self.customer.name}|'  # 客户姓名
-            f'房间:{self.room.room_number}|'  # 房间号
-            f'{self.check_in_date}至{self.check_out_date}({days}天)|'  # 入住日期范围和天数
+            f'预订号:{self.id} | '  # 预订ID
+            f'客户:{self.customer.name} | '  # 客户姓名
+            f'房间:{self.room.room_number} | '  # 房间号
+            f'{self.check_in_date} 至 {self.check_out_date} (共{days}天) | '  # 入住日期范围和天数
             f'人数:{self.number_of_guests}'  # 入住人数
         )
         
@@ -353,10 +457,10 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
         
         # 构建退款描述文本，包含预订的详细信息
         description = (
-            f'退款-预订号:{self.id}|'  # 预订ID
-            f'客户:{self.customer.name}|'  # 客户姓名
-            f'房间:{self.room.room_number}|'  # 房间号
-            f'{self.check_in_date}至{self.check_out_date}({days}天)|'  # 入住日期范围和天数
+            f'退款-预订号:{self.id} | '  # 预订ID
+            f'客户:{self.customer.name} | '  # 客户姓名
+            f'房间:{self.room.room_number} | '  # 房间号
+            f'{self.check_in_date} 至 {self.check_out_date}({days}天) | '  # 入住日期范围和天数
             f'退款:￥{self.refund_amount}'  # 退款金额
         )
         
@@ -379,7 +483,7 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
             # 如果找到收入记录
             if income:
                 # 在收入描述后追加退款标记
-                income.description += f'|[已退订-退款￥{self.refund_amount}]'
+                income.description += f' | [已退订-退款￥{self.refund_amount}]'
                 # 保存更新后的收入记录
                 income.save()
         
@@ -419,42 +523,51 @@ class Reservation(models.Model):  # 定义预订模型类，继承自Django的Mo
             # 如果找到收入记录
             if income:
                 # 在收入描述后追加删除标记
-                income.description += '|[预订已删除]'
+                income.description += ' | [预订已删除]'
                 # 保存更新后的收入记录
                 income.save()
         
         # 调用父类的delete方法，从数据库中删除预订记录
         super().delete(*args, **kwargs)
-        
-        # 查询该房间的所有活跃预订（已预定或已入住）
+
+        # 查询该房间的所有"活跃"预订，查询条件：
+        #   - room=room：筛选当前预订关联的房间
+        #   - status__in=['Booked', 'CheckedIn']：只看"已预订"和"已入住"状态
+        # 等价SQL: SELECT * FROM reservations_reservation
+        #          WHERE room_id = 当前房间ID
+        #          AND status IN ('Booked', 'CheckedIn')
         active = Reservation.objects.filter(
-            room=room,  # 筛选当前房间
-            status__in=['Booked', 'CheckedIn']  # 状态为已预定或已入住
+            room=room,  # 筛选当前房间的预订
+            status__in=['Booked', 'CheckedIn']  # 只看活跃状态的预订
         )
-        
-        # 如果存在已入住的订单
+
+        # 根据优先级判断房间应该是什么状态
+        #   如果有"已入住"的预订 → 房间状态 = 已入住
+        #   否则如果有"已预订"的预订 → 房间状态 = 已预订
+        #   否则 → 房间状态 = 空闲（除非原本是维修中）
+
+        # 情况1：检查是否有"已入住"状态的预订
+        # .filter(status='CheckedIn') 进一步筛选出已入住的预订
+        # .exists() 返回True/False，表示是否存在符合条件的记录
         if active.filter(status='CheckedIn').exists():
-            # 房间状态设为已入住
+            # 有客人正在住，房间状态应该是"已入住"(Occupied)
             new_status = 'Occupied'
-        # 否则，如果存在已预定的订单
+
+        # 情况2：没有入住的，检查是否有"已预订"状态的预订
         elif active.filter(status='Booked').exists():
-            # 房间状态设为已预订
+            # 有预订但还没入住，房间状态应该是"已预订"(Booked)
             new_status = 'Booked'
-        # 否则，没有活跃订单
+
+        # 情况3：既没有入住也没有预订
         else:
-            # 如果房间当前不是维修中状态
-            if room.status != 'Maintenance':
-                # 房间状态设为空闲
-                new_status = 'Available'
-            else:  # 如果房间是维修中状态
-                # 保持维修中状态不变
-                new_status = 'Maintenance'
-        
-        # 如果房间当前状态与新状态不同
-        if room.status != new_status:
-            # 更新房间状态
-            room.status = new_status
-            # 保存房间对象到数据库
+            # 如果房间原本不是"维修中" → 设为"空闲"
+            # 如果房间原本是"维修中" → 保持"维修中"（不自动改变维修状态）
+            new_status = 'Available' if room.status != 'Maintenance' else 'Maintenance'
+
+        # 如果状态发生变化，则更新房间并保存到数据库
+        # 只有当新状态和当前状态不同时才更新，避免不必要的数据库写操作
+        if room.status != new_status:  # 如果状态有变化
+            room.status = new_status  # 更新房间对象的status属性
             room.save()
 
     def __str__(self):  # 定义模型对象的字符串表示方法

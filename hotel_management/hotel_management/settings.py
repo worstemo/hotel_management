@@ -246,7 +246,7 @@ SIMPLEUI_CONFIG = {
             'models': [  # 子菜单列表
                 {'name': '房间管理', 'icon': 'fa fa-th-list', 'url': 'rooms/room/'},
                 {'name': '顾客管理', 'icon': 'fa fa-th-list', 'url': 'customers/customer/'},
-                {'name': '预定管理', 'icon': 'fa fa-th-list', 'url': 'reservations/reservation/'}
+                {'name': '预订管理', 'icon': 'fa fa-th-list', 'url': 'reservations/reservation/'}
             ]
         },
         {

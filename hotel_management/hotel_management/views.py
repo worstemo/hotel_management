@@ -42,7 +42,7 @@ class CustomLoginView(View):
         2. POST请求时，验证用户名和密码，验证成功则登录并跳转
         3. 验证失败则显示错误消息
     """
-    
+
     # 登录页面模板文件名
     # 该模板文件位于templates/custom_login.html
     template_name = 'custom_login.html'

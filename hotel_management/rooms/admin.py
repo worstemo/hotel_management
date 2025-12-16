@@ -224,7 +224,7 @@ class RoomAdmin(admin.ModelAdmin):
         # 显示成功消息
         messages.success(request, f'房间 {obj.room_number} 已删除')
 
-    @admin.action(description='删除所选的 房间')
+    @admin.action(description='删除所选的房间')
     def safe_delete_selected(self, request, queryset):
         """
         安全批量删除房间的操作方法

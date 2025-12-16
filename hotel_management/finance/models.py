@@ -96,7 +96,7 @@ class Income(models.Model):
         返回:
             str: 格式化的收入信息
         """
-        return f"{self.date}-{self.source}:{self.amount}"
+        return f"{self.date} - {self.source}: {self.amount}"
 
     class Meta:
         """
